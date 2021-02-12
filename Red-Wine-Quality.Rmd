@@ -1,0 +1,618 @@
+---
+title: "Red Wine Ratings"
+date: "11/26/2019"
+output: html_document
+---
+
+### Group Names: Cameron Cross, Cathy Cao, Berit Waterfield
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r setup-2, include=FALSE, echo = FALSE}
+library(tidyverse)
+library(lubridate)
+library(viridis)
+library(scales)
+library(modelr)
+library(caret)
+library(reshape2) ### For correlation
+options(ggplot2.continuous.colour = "viridis")
+options(ggplot2.continuous.fill = "viridis")
+
+scale_colour_discrete <- scale_colour_viridis_d
+scale_fill_discrete <- scale_fill_viridis_d 
+options(warn=-1)
+```
+
+``` {r read-data, echo = FALSE, include = FALSE}
+wine = read_csv("winequality-red.csv")
+
+wine_modified = wine %>% 
+  mutate(quality = as.character(quality))
+
+wine2 = wine %>% 
+  summarize(mean_fixed_acidity = mean(`fixed acidity`),
+            sd_fixed_acidity = sd(`fixed acidity`),
+            mean_volatile_acidity = mean(`volatile acidity`),
+            sd_volatile_acidity = sd(`volatile acidity`),
+            mean_citric_acid = mean(`citric acid`),
+            sd_citric_acid = sd(`citric acid`),
+            mean_residual_sugar = mean(`residual sugar`),
+            sd_residual_sugar = sd(`residual sugar`),
+            mean_chlorides = mean(`chlorides`),
+            sd_chlorides = sd(`chlorides`),
+            mean_free_sulfur_dioxide = mean(`free sulfur dioxide`),
+            sd_free_sulfur_dioxide = sd(`free sulfur dioxide`),
+            mean_total_sulfur_dioxide = mean(`total sulfur dioxide`),
+            sd_total_sulfur_dioxide = sd(`total sulfur dioxide`),
+            mean_density = mean(`density`),
+            sd_density = sd(`density`),
+            mean_pH = mean(`pH`),
+            sd_pH = sd(`pH`),
+            mean_sulphates = mean(`sulphates`),
+            sd_sulphates = sd(`sulphates`),
+            mean_alcohol = mean(`alcohol`),
+            sd_alcohol = sd(`alcohol`))
+
+wine3 = wine %>% 
+  group_by(quality) %>% 
+  summarize(mean_fixed_acidity = mean(`fixed acidity`),
+            sd_fixed_acidity = sd(`fixed acidity`),
+            mean_volatile_acidity = mean(`volatile acidity`),
+            sd_volatile_acidity = sd(`volatile acidity`),
+            mean_citric_acid = mean(`citric acid`),
+            sd_citric_acid = sd(`citric acid`),
+            mean_residual_sugar = mean(`residual sugar`),
+            sd_residual_sugar = sd(`residual sugar`),
+            mean_chlorides = mean(`chlorides`),
+            sd_chlorides = sd(`chlorides`),
+            mean_free_sulfur_dioxide = mean(`free sulfur dioxide`),
+            sd_free_sulfur_dioxide = sd(`free sulfur dioxide`),
+            mean_total_sulfur_dioxide = mean(`total sulfur dioxide`),
+            sd_total_sulfur_dioxide = sd(`total sulfur dioxide`),
+            mean_density = mean(`density`),
+            sd_density = sd(`density`),
+            mean_pH = mean(`pH`),
+            sd_pH = sd(`pH`),
+            mean_sulphates = mean(`sulphates`),
+            sd_sulphates = sd(`sulphates`),
+            mean_alcohol = mean(`alcohol`),
+            sd_alcohol = sd(`alcohol`))
+
+q3_wine = wine %>% 
+  filter(quality == 3)
+
+q4_wine = wine %>% 
+  filter(quality == 4)
+
+q5_wine = wine %>% 
+  filter(quality == 5)
+
+q6_wine = wine %>% 
+  filter(quality == 6)
+
+q7_wine = wine %>% 
+  filter(quality == 7)
+
+q8_wine = wine %>% 
+  filter(quality == 8)
+```
+
+```{r function, include = FALSE,,eval= TRUE}
+geom_norm_density = function(mu=0,sigma=1,a=NULL,b=NULL,color="blue",...)
+{
+  if ( is.null(a) )
+  {
+    a = qnorm(0.0001,mu,sigma)
+  }
+  if ( is.null(b) )
+  {
+    b = qnorm(0.9999,mu,sigma)
+  }
+  x = seq(a,b,length.out=1001)
+  df = data.frame(
+    x=x,
+    y=dnorm(x,mu,sigma)
+  )
+  geom_line(data=df,aes(x=x,y=y),color=color,...)
+}
+
+geom_norm_fill = function(mu=0,sigma=1,a=NULL,b=NULL,
+                          fill="firebrick4",...)
+{
+  if ( is.null(a) )
+  {
+    a = qnorm(0.0001,mu,sigma)
+  }
+  if ( is.null(b) )
+  {
+    b = qnorm(0.9999,mu,sigma)
+  }
+  x = seq(a,b,length.out=1001)
+  df = data.frame(
+    x=x,
+    ymin=rep(0,length(x)),
+    ymax = dnorm(x,mu,sigma)
+  )
+  geom_ribbon(data=df,aes(x=x,ymin=ymin,ymax=ymax),fill=fill,...)
+}
+
+gnorm = function(mu=0,sigma=1,a=NULL,b=NULL,color="blue",
+                 fill=NULL,title=TRUE,...)
+{
+  g = ggplot()
+  
+  if ( !is.null(fill) )
+    g = g + geom_norm_fill(mu,sigma,a,b,fill)
+  
+  g = g +
+    geom_norm_density(mu,sigma,a,b,color,...) +
+    geom_hline(yintercept=0) +
+    ylab('density')
+
+  if ( title )
+    g = g +
+      ggtitle(paste("N(",mu,",",sigma,")"))
+  return ( g )
+}
+```
+### Background:
+> Inspiration:
+
+The central question for this project is: What is the physicochemical component that influences wine quality the greatest? Each of the components alter the quality, but there could possibly be a component that stands out and plays a heavy role in determining a wine's quality. Additionally, we would like to see what a wine's input component values look like at each quality level and if certain elements of wine have a "relationship" (tendencies to use more or less of one component when a different component is added).
+
+
+> About the data:
+
+Our data is related to the red and white variants of the Portuguese "Vinho Verde" wine data  collected by a team of scientists utilizing machine learning in an attempt to predict human wine taste preferences based on the contents of the wine. The data set includes the physicochemical (inputs) and sensory (the output) variables. The input variables are:
+
+* `fixed acidity` - most acids involved with wine or fixed or nonvolatile (do not evaporate readily)
+* `volatile acidity` - the amount of acetic acid in wine, which at too high of levels can lead to an unpleasant, vinegar taste  
+* `citric acid` - found in small quantities, citric acid can add 'freshness' and flavor to wines  
+* `residual sugar` - the amount of sugar remaining after fermentation stops, it's rare to find wines with less than 1 gram/liter and wines with greater than 45 grams/liter are considered sweet
+* `chlorides` - the amount of salt in the wine
+* `free sulfur dioxide` - the free form of SO2 exists in equilibrium between molecular SO2 (as a dissolved gas) and bisulfite ion; it prevents microbial growth and the oxidation of wine
+* `total sulfur dioxide` - amount of free and bound forms of S02; in low concentrations, SO2 is mostly undetectable in wine, but at free SO2 concentrations over 50 ppm, SO2 becomes evident in the nose and taste of wine  
+* `density` - the density of water is close to that of water depending on the percent alcohol and sugar content;  
+* `pH` - describes how acidic or basic a wine is on a scale from 0 (very acidic) to 14 (very basic); most wine are between 3-4 on the pH scale; 
+* `sulphates` - a wine additive which can contribute to sulfur dioxide gas (S02) levels, wich acts as an antimicrobial and antioxidant
+* `alcohol` - the percent alcohol content of the wine
+
+The output variable is:  
+* `quality` - output variable (based on sensory data, score between 0 and 10)
+
+
+> Data modifications: 
+
+We first created a new data set, mutated_data, that mutated the original data set by changing the quality values to character values. Secondly, we created another data set, wine2, that summarized the original data set with the mean and standard deviation values for each input variable. Lastly, the third data set created, wine3, takes the original data set, groups by the quality value, and again summarizes with the mean and standard deviation of each input component. Wine3 is also used to create smaller data sets that are filtered by quality level for later use.
+
+
+> Data citiation:
+
+Learning, UCI Machine. “Red Wine Quality.” Kaggle, 27 Nov. 2017, www.kaggle.com/uciml/red-wine-quality-cortez-et-al-2009.
+
+
+> Mission:
+
+We started by examining the output component, quality, using various methods. Then, each of the input components were examined individually to show various features. A correlation chart was then created to determine if there are any relationships between the components. Lastly, a linear regression is used to determine the variables that influence the quality of wine the most.
+
+### Analysis:
+
+> First, we take a look at the output variable, quantity
+
+A bar graph is created to see the amount of wine that falls within each quality value.
+
+``` {r quality, echo = FALSE}
+ggplot(wine) +
+  geom_bar(mapping = aes(x = quality), width = .9, fill = "red") +
+  xlab("Quality") +
+  ylab("Count") +
+  ggtitle("Amount of Wines at Each Quality Level")
+```
+
+``` {r quality-2, echo = FALSE, include = FALSE}
+wine3 %>% 
+  select(mean_fixed_acidity, mean_volatile_acidity, mean_citric_acid, mean_residual_sugar, mean_chlorides, mean_free_sulfur_dioxide, mean_total_sulfur_dioxide, mean_density,          mean_pH, mean_sulphates, mean_alcohol)
+```
+
+Next, the data is grouped by quality and the means of the component usages for each quality level are calculated. These means are graphed to display trends that occur with increasing quality
+
+``` {r mean-graphs, echo = FALSE}
+ggplot(wine3) +
+  geom_point(mapping = aes(x = quality, y = mean_fixed_acidity), color = "red") +
+  geom_smooth(mapping = aes(x = quality, y = mean_fixed_acidity), color = "red") +
+  geom_point(mapping = aes(x = quality, y = mean_volatile_acidity), color = "orange") +
+  geom_smooth(mapping = aes(x = quality, y = mean_volatile_acidity), color = "orange") +
+  geom_point(mapping = aes(x = quality, y = mean_citric_acid), color = "yellow") +
+  geom_smooth(mapping = aes(x = quality, y = mean_citric_acid), color = "yellow") +
+  geom_point(mapping = aes(x = quality, y = mean_residual_sugar), color = "blue") +
+  geom_smooth(mapping = aes(x = quality, y = mean_residual_sugar), color = "blue") +
+  geom_point(mapping = aes(x = quality, y = mean_chlorides), color = "lightblue2") +
+  geom_smooth(mapping = aes(x = quality, y = mean_chlorides), color = "lightblue2") +
+  geom_point(mapping = aes(x = quality, y = mean_free_sulfur_dioxide), color = "lightcoral") +
+  geom_smooth(mapping = aes(x = quality, y = mean_free_sulfur_dioxide), color = "lightcoral") +
+  geom_point(mapping = aes(x = quality, y = mean_total_sulfur_dioxide), color = "purple") +
+  geom_smooth(mapping = aes(x = quality, y = mean_total_sulfur_dioxide), color = "purple") +
+  geom_point(mapping = aes(x = quality, y = mean_density), color = "pink") +
+  geom_smooth(mapping = aes(x = quality, y = mean_density), color = "pink") +
+  geom_point(mapping = aes(x = quality, y = mean_pH), color = "limegreen") +
+  geom_smooth(mapping = aes(x = quality, y = mean_pH), color = "limegreen") +
+  geom_point(mapping = aes(x = quality, y = mean_sulphates), color = "olivedrab") +
+  geom_smooth(mapping = aes(x = quality, y = mean_sulphates), color = "olivedrab") +
+  geom_point(mapping = aes(x = quality, y = mean_alcohol), color = "aquamarine3") +
+  geom_smooth(mapping = aes(x = quality, y = mean_alcohol), color = "aquamarine3") +
+  xlab("Quality") +
+  ylab("Mean values") +
+  labs(title = "Mean values as Quality Increases", subtitle = "Fixed Acidity = red, Volatile Acidity = orange, Citric Acid = yellow, Residual Sugar = blue,\nChlorides = light blue, Free Sulfur Dioxide = light coral, Total Sulfur Dioxide = purple, Density = pink,\npH = lime green, Sulphates = olive, Alcohol = aqua marine")
+```
+ 
+ > Next, each of the input variables are examined in detail
+ 
+Each of the input variables are looked at using their counts at various amounts of usuage, using a box plot that shows their values at the various quality levels, and finally using density distributions that are all isolated by quality values. These give us a good look at the most common values used in general and at each quality level.
+
+> Fixed Acidity
+
+``` {r fixed-acidity, echo = FALSE}
+ggplot(wine) +
+  geom_bar(mapping = aes(x = `fixed acidity`), fill = "blue") +
+  xlab("Fixed Acidity (g/L)") +
+  ylab("Count") +
+  ggtitle("Fixed Acidity vs. Quality")
+
+ggplot(wine_modified, aes(x = quality, y = `fixed acidity`)) +
+  geom_boxplot() +
+  xlab("Quality") +
+  ylab("Fixed Acidity (g/L)") +
+  ggtitle("Distribution of Fixed Acidity by Quality")
+
+ggplot() +
+  geom_density(data = q3_wine, mapping = aes(x = `fixed acidity`), color = "red") +
+  geom_density(data = q4_wine, mapping = aes(x = `fixed acidity`), color = "orange") +
+  geom_density(data = q5_wine, mapping = aes(x = `fixed acidity`), color = "yellow") +
+  geom_density(data = q6_wine, mapping = aes(x = `fixed acidity`), color = "blue") +
+  geom_density(data = q7_wine, mapping = aes(x = `fixed acidity`), color = "purple") +
+  xlab("Fixed Acitiy (g/L)") +
+  ylab("Frequency") +
+  labs(title = "Normal Distribution of Fixed Acidity", subtitle = "Quality levels (red = 3, orange = 4, yellow = 5, blue = 6, purple = 7")
+```
+
+> Volatile Acidity
+
+``` {r volatile-acidity, echo = FALSE}
+ggplot(data = wine) +
+  geom_bar(aes(x = `volatile acidity`), fill = "red") +
+  xlab("Volatile Acidity (g/L)") +
+  ylab("Count") +
+  ggtitle("Volatile Acidity vs. Quality")
+
+ggplot(wine_modified, aes(x = quality, y = `volatile acidity`)) +
+  geom_boxplot() +
+  xlab("Quality") +
+  ylab("Volatile Acidity (g/L)") +
+  ggtitle("Distribution of Volatile Acidity by Quality")
+
+ggplot() +
+  geom_density(data = q3_wine, mapping = aes(x = `volatile acidity`), color = "red") +
+  geom_density(data = q4_wine, mapping = aes(x = `volatile acidity`), color = "orange") +
+  geom_density(data = q5_wine, mapping = aes(x = `volatile acidity`), color = "yellow") +
+  geom_density(data = q6_wine, mapping = aes(x = `volatile acidity`), color = "blue") +
+  geom_density(data = q7_wine, mapping = aes(x = `volatile acidity`), color = "purple") +
+  xlab("Volatile Acidity (g/L)") +
+  ylab("Frequency") +
+  labs(title = "Normal Distribution of Volatile Quality", subtitle = "Quality levels (red = 3, orange = 4, yellow = 5, blue = 6, purple = 7")
+```
+
+> Citric Acid
+
+``` {r citric-acid, echo = FALSE}
+ggplot(wine) +
+  geom_bar(mapping = aes(x = `citric acid`), fill = "purple") +
+  xlab("Citric Acid (g/L)") +
+  ylab("Count") +
+  ggtitle("Citric Acid vs. Quality")
+
+ggplot(wine_modified, aes(x = quality, y = `citric acid`)) +
+  geom_boxplot() +
+  xlab("Quality") +
+  ylab("Citric Acid (g/L)") +
+  ggtitle("Distribution of Citric Acid by Quality")
+
+ggplot() +
+  geom_density(data = q3_wine, mapping = aes(x = `citric acid`), color = "red") +
+  geom_density(data = q4_wine, mapping = aes(x = `citric acid`), color = "orange") +
+  geom_density(data = q5_wine, mapping = aes(x = `citric acid`), color = "yellow") +
+  geom_density(data = q6_wine, mapping = aes(x = `citric acid`), color = "blue") +
+  geom_density(data = q7_wine, mapping = aes(x = `citric acid`), color = "purple") +
+  xlab("Citric Acid (g/L)") +
+  ylab("Frequency") +
+  labs(title = "Normal Distribution of Citric Acid", subtitle = "Quality levels (red = 3, orange = 4, yellow = 5, blue = 6, purple = 7")
+```
+
+> Redisual Sugar
+
+``` {r residual-sugar, echo = FALSE}
+ggplot(wine) +
+  geom_bar(mapping = aes(x = `residual sugar`), fill = "green") +
+  xlab("Residual Sugar (g/L)") +
+  ylab("Count") +
+  ggtitle("Residual Sugar vs. Quality")
+
+ggplot(wine_modified, aes(x = quality, y = `residual sugar`)) +
+  geom_boxplot() +
+  xlab("Quality") +
+  ylab("Residual Sugar (g/L)") +
+  ggtitle("Distribution of Residual Sugar by Quality")
+
+ggplot() +
+  geom_density(data = q3_wine, mapping = aes(x = `residual sugar`), color = "red") +
+  geom_density(data = q4_wine, mapping = aes(x = `residual sugar`), color = "orange") +
+  geom_density(data = q5_wine, mapping = aes(x = `residual sugar`), color = "yellow") +
+  geom_density(data = q6_wine, mapping = aes(x = `residual sugar`), color = "blue") +
+  geom_density(data = q7_wine, mapping = aes(x = `residual sugar`), color = "purple") +
+  xlab("Residual Sugar (g/L)") +
+  ylab("Frequency") +
+  labs(title = "Normal Distribution of Residual Sugar", subtitle = "Quality levels (red = 3, orange = 4, yellow = 5, blue = 6, purple = 7")
+```
+
+> Chlorides
+
+``` {r chlorides, echo = FALSE}
+ggplot(wine) +
+  geom_bar(mapping = aes(x = `chlorides`), fill = "pink") +
+  xlab("Chlorides (g/L)") +
+  ylab("Count") +
+  ggtitle("Chlorides vs. Quality")
+
+ggplot(wine_modified, aes(x = quality, y = `chlorides`)) +
+  geom_boxplot() +
+  xlab("Quality") +
+  ylab("Chlorides (g/L)") +
+  ggtitle("Distribution of Chlorides by Quality")
+
+ggplot() +
+  geom_density(data = q3_wine, mapping = aes(x = chlorides), color = "red") +
+  geom_density(data = q4_wine, mapping = aes(x = chlorides), color = "orange") +
+  geom_density(data = q5_wine, mapping = aes(x = chlorides), color = "yellow") +
+  geom_density(data = q6_wine, mapping = aes(x = chlorides), color = "blue") +
+  geom_density(data = q7_wine, mapping = aes(x = chlorides), color = "purple") +
+  xlab("Chlorides (g/L)") +
+  ylab("Frequency") +
+  labs(title = "Normal Distribution of Chlorides", subtitle = "Quality levels (red = 3, orange = 4, yellow = 5, blue = 6, purple = 7")
+```
+
+> Free Sulfur Dioxide
+
+``` {r free-sulfur-dioxide, echo = FALSE}
+ggplot(wine) +
+  geom_bar(mapping = aes(x = `free sulfur dioxide`), fill = "orange") +
+  xlab("Free Sulfur Dioxide (mg/L)") +
+  ylab("Count") +
+  ggtitle("Free Sulfur Dioxide vs. Quality")
+
+ggplot(wine_modified, aes(x = quality, y = `free sulfur dioxide`)) +
+  geom_boxplot() + 
+  xlab("Quality") +
+  ylab("Free Sulfur Dioxide (mg/L)") +
+  ggtitle("Distribution of Free Sulfur Dioxide by Quality")
+
+ggplot() +
+  geom_density(data = q3_wine, mapping = aes(x = `free sulfur dioxide`), color = "red") +
+  geom_density(data = q4_wine, mapping = aes(x = `free sulfur dioxide`), color = "orange") +
+  geom_density(data = q5_wine, mapping = aes(x = `free sulfur dioxide`), color = "yellow") +
+  geom_density(data = q6_wine, mapping = aes(x = `free sulfur dioxide`), color = "blue") +
+  geom_density(data = q7_wine, mapping = aes(x = `free sulfur dioxide`), color = "purple") +
+  xlab("Free Sulfur Dioxide (mg/L)") +
+  ylab("Frequency") +
+  labs(title = "Normal Distribution of Free Sulfur Dioxide", subtitle = "Quality levels (red = 3, orange = 4, yellow = 5, blue = 6, purple = 7")
+```
+
+> Total Sulfur Dioxide
+
+``` {r total-sulfur-dioxide, echo = FALSE}
+ggplot(wine) +
+  geom_bar(mapping = aes(x = `total sulfur dioxide`), fill = "navy") +
+  xlab("Total Sulfur Dioxide (mg/L)") +
+  ylab("Count") +
+  ggtitle("Total Sulfur Dioxide vs. Quality")
+
+ggplot(wine_modified, aes(x = quality, y = `total sulfur dioxide`)) +
+  geom_boxplot() +
+  xlab("Quality") +
+  ylab("Total Sulfur Dioxide (mg/L)") +
+  ggtitle("Distribution of Total Sulfur Dioxide by Quality")
+
+ggplot() +
+  geom_density(data = q3_wine, mapping = aes(x = `total sulfur dioxide`), color = "red") +
+  geom_density(data = q4_wine, mapping = aes(x = `total sulfur dioxide`), color = "orange") +
+  geom_density(data = q5_wine, mapping = aes(x = `total sulfur dioxide`), color = "yellow") +
+  geom_density(data = q6_wine, mapping = aes(x = `total sulfur dioxide`), color = "blue") +
+  geom_density(data = q7_wine, mapping = aes(x = `total sulfur dioxide`), color = "purple") +
+  xlab("Total Sulfur Dioxide (mg/L)") +
+  ylab("Frequency") +
+  labs(title = "Normal Distribution of Total Sulfur Dioxide", subtitle = "Quality levels (red = 3, orange = 4, yellow = 5, blue = 6, purple = 7")
+```
+
+> Density
+
+``` {r density, echo = FALSE, include = FALSE}
+ggplot(wine) +
+  geom_bar(mapping = aes(x = density), fill = "black") +
+  xlab("Density (g/mL)") +
+  ylab("Count") +
+  ggtitle("Density vs. Quality")
+
+ggplot(wine_modified, aes(x = quality, y = density)) +
+  geom_boxplot() +
+  xlab("Quality") +
+  ylab("Density (g/mL)") +
+  ggtitle("Distribution of Density by Quality")
+
+ggplot() +
+  geom_density(data = q3_wine, mapping = aes(x = density), color = "red") +
+  geom_density(data = q4_wine, mapping = aes(x = density), color = "orange") +
+  geom_density(data = q5_wine, mapping = aes(x = density), color = "yellow") +
+  geom_density(data = q6_wine, mapping = aes(x = density), color = "blue") +
+  geom_density(data = q7_wine, mapping = aes(x = density), color = "purple") +
+  xlab("Density (g/mL)") +
+  ylab("Frequency") +
+  labs(title = "Normal Distribution of Density", subtitle = "Quality levels (red = 3, orange = 4, yellow = 5, blue = 6, purple = 7")
+```
+
+> pH
+
+``` {r pH, echo = FALSE}
+ggplot(wine) +
+  geom_bar(mapping = aes(x = pH), fill = "blue") +
+  xlab("pH") +
+  ylab("Count") +
+  ggtitle("pH vs. Quality")
+
+ggplot(wine_modified, aes(x = quality, y = pH)) +
+  geom_boxplot() +
+  xlab("Quality") +
+  ylab("pH") +
+  ggtitle("Distribution of pH by Quality")
+
+ggplot() +
+  geom_density(data = q3_wine, mapping = aes(x = pH), color = "red") +
+  geom_density(data = q4_wine, mapping = aes(x = pH), color = "orange") +
+  geom_density(data = q5_wine, mapping = aes(x = pH), color = "yellow") +
+  geom_density(data = q6_wine, mapping = aes(x = pH), color = "blue") +
+  geom_density(data = q7_wine, mapping = aes(x = pH), color = "purple") +
+  xlab("pH") +
+  ylab("Frequency") +
+  labs(title = "Normal Distribution of pH", subtitle = "Quality levels (red = 3, orange = 4, yellow = 5, blue = 6, purple = 7")
+```
+
+> Sulphates
+
+``` {r sulphates, echo = FALSE}
+ggplot(wine) +
+  geom_bar(mapping = aes(x = sulphates), fill = "red") +
+  xlab("Sulphates (g/L)") +
+  ylab("Count") +
+  ggtitle("Sulphates vs. Quality")
+
+ggplot(wine_modified, aes(x = quality, y = sulphates)) +
+  geom_boxplot() +
+  xlab("Quality") +
+  ylab("Sulphates (g/L)") +
+  ggtitle("Distribution of Sulphates by Quality")
+
+ggplot() +
+  geom_density(data = q3_wine, mapping = aes(x = sulphates), color = "red") +
+  geom_density(data = q4_wine, mapping = aes(x = sulphates), color = "orange") +
+  geom_density(data = q5_wine, mapping = aes(x = sulphates), color = "yellow") +
+  geom_density(data = q6_wine, mapping = aes(x = sulphates), color = "blue") +
+  geom_density(data = q7_wine, mapping = aes(x = sulphates), color = "purple") +
+  xlab("Sulphates (g/L)") +
+  ylab("Frequency") +
+  labs(title = "Normal Distribution of Sulphates", subtitle = "Quality levels (red = 3, orange = 4, yellow = 5, blue = 6, purple = 7")
+```
+
+> Alcohol
+
+``` {r alcohol, echo = FALSE}
+ggplot(wine) +
+  geom_bar(mapping = aes(x = alcohol), fill = "purple") +
+  xlab("Alcohol (%)") +
+  ylab("Count") +
+  ggtitle("Alcohol vs. Quality")
+
+ggplot(wine_modified, aes(x = quality, y = alcohol)) +
+  geom_boxplot() +
+  xlab("Quality") +
+  ylab("Alcohol (%)") +
+  ggtitle("Distribution of Alcohol by Quality")
+
+ggplot() +
+  geom_density(data = q3_wine, mapping = aes(x = density), color = "red") +
+  geom_density(data = q4_wine, mapping = aes(x = alcohol), color = "orange") +
+  geom_density(data = q5_wine, mapping = aes(x = alcohol), color = "yellow") +
+  geom_density(data = q6_wine, mapping = aes(x = alcohol), color = "blue") +
+  geom_density(data = q7_wine, mapping = aes(x = alcohol), color = "purple") +
+  xlab("Alcohol (%)") +
+  ylab("Frequency") +
+  labs(title = "Normal Distribution of Alcohol", subtitle = "Quality levels (red = 3, orange = 4, yellow = 5, blue = 6, purple = 7")
+```
+
+> Thirdly, a correlation chart is created to unveil relationships between various components
+
+The wine data set is rounded to create a correlation matrix. This is then melted to Var1 (which includes the first set of variables), Var2 (contains the second set of variables, but should be the same because the data set was rounded), and the correlation value. These are then plotted using ggplot.
+
+``` {r correlation-plot, echo = FALSE}
+cormat <- round(cor(wine),2)
+melted_cormat <- melt(cormat)
+
+ggplot(data = melted_cormat, aes(x = Var1, y = Var2, fill = value)) + 
+  geom_tile() +
+  geom_text(aes(Var2, Var1, label = value), color = "black", size = 4) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  xlab("") +
+  ylab("") +
+  labs(title = "Correlation Chart for the Inputs and Output Components")
+```
+
+It can be seen that citric acid and fixed acidity have a relatively strong relationship. In addition, density and fixed acidity and total sulfur dioxide and free sulfur dioxide have relatively strong relationships. Also, pH and fixed acidity, pH and citric acid, and alcohol and density have moderatly strong inverse relationships. It is also worth noting that alcohol has the strongest relationship with quality, which will be examined further next.
+
+We could have determine the most influential components using their relationship to quality in the correlation chart, but to increase our confidence, we want to normalize the variables and use a linear regression model.
+
+> Lastly, a linear regression model is used with the normalized variable values to determine the most important components in wine (alter its quality the most when all compenents are added in the same quantity)
+
+The dataset wine is first normalized using this equation
+
+$$
+x_{norm} = \left(\frac {x - x_{min}}{x_{max} - x_{min}} \right)
+$$
+
+After, the normalized values are inputed into the linear regression model and summarized
+
+``` {r model, echo = FALSE}
+normalized_wine = wine %>%
+  mutate(normal_fixed_acidity = (`fixed acidity` - min(`fixed acidity`)) / (max(`fixed acidity`) - min(`fixed acidity`)),
+         normal_volatile_acidity = (`volatile acidity` - min(`volatile acidity`)) / (max(`volatile acidity`) - min(`volatile acidity`)),
+         normal_citric_acid = (`citric acid` - min(`citric acid`)) / (max(`citric acid`) - min(`citric acid`)),
+         normal_residual_sugar = (`residual sugar` - min(`residual sugar`)) / (max(`residual sugar`) - min(`residual sugar`)),
+         normal_chlorides = (`chlorides` - min(`chlorides`)) / (max(`chlorides`) - min(`chlorides`)),
+         normal_free_sulfur_dioxide = (`free sulfur dioxide` - min(`free sulfur dioxide`)) / (max(`free sulfur dioxide`) - min(`free sulfur dioxide`)),
+         normal_total_sulfur_dioxide = (`total sulfur dioxide` - min(`total sulfur dioxide`)) / (max(`total sulfur dioxide`) - min(`total sulfur dioxide`)),
+         normal_density = (`density` - min(`density`)) / (max(`density`) - min(`density`)),
+         normal_pH = (`pH` - min(`pH`)) / (max(`pH`) - min(`pH`)),
+         normal_sulphates = (`sulphates` - min(`sulphates`)) / (max(`sulphates`) - min(`sulphates`)),
+         normal_alcohol = (`alcohol` - min(`alcohol`)) / (max(`alcohol`) - min(`alcohol`))) %>% 
+  select(normal_fixed_acidity, normal_volatile_acidity, normal_citric_acid, normal_residual_sugar, normal_chlorides, normal_free_sulfur_dioxide, normal_total_sulfur_dioxide, normal_density, normal_pH, normal_sulphates, normal_alcohol, quality)
+
+model <- lm(quality ~ ., data = normalized_wine)
+summary(model)
+```
+
+In conclusion, using the estimate values (which are the slopes), the greater the absolute value, the greater that variable will change the quality of a wine with an increase or decrease in use. The rankings in order are shown with their slope values included:
+
+----------------------------------------------------
+
+Ranking of most important physicochemical components:
+
+1. Alcohol (1.7953)
+2. Volatile Acidity (-1.5820)
+3. Sulphates (1.5303)
+4. Chlorides (-1.1227)
+5. Total Sulfur Dioxide (-0.9239)
+6. pH (-0.5253)
+7. Free Sulfur Dioxide (0.3097)
+8. Fixed Acidity (0.2824)
+9. Density (-0.2435)
+10. Residual Sugar (0.2384)
+11. Citric Acid (-0.1826)
+
+----------------------------------------------------
+
+With these variables ranked, it is clear to see that the alcohol content is crucial to quality, but volatile acidity, sulphates, chlorides, and total sulfur dioxide are aslo major contributors to a wine's quality. This means that these components must be considered heavily while creating wine in order to achieve a great quality drink. 
+
+This raises two last questions: Should the top five physicochemical compenents ranked be the only ones considered due to a sharp dropoff after total sulfur dioxide in terms of thier affect on wine quality? Will increasing or decreasing the amount of an ingredient always alter the quality in the same way?
+
+### Interpretation:
+  Based on our data analysis, it can be determined that alcohol is the most critical physicochemical component when it comes to wine quality. However, the ingredients in rank two to five have a critical role in a wine's quality as well. After the fifth component, it can be seen that the remaining inputs do not influence wine quality in nearly the same manner so these components can be considered inconsequential for wine quality. These variables increase quality to a certain extent. Obviously adding an abundent amount of alcohol or another component will greatly drop a wine's quality. It is a great balancing game when making quility wine. These physicochemical components will alter a wine's quality when added or removed in small amounts, not excess. This means that on a small scale, these rankings should be considered.
+  
+  With help from the correlation chart, it can be seen that some of the components have relationships. Citric acid and fixed acidity, density and fixed acidity and total sulfur dioxide and free sulfur dioxide have relatively strong relationships, while pH and fixed acidity, pH and citric acid, and alcohol and density have moderatly strong inverse relationships.
